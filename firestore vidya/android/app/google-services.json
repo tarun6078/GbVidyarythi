@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "906191698637",
+    "project_id": "firelog-a5a41",
+    "storage_bucket": "firelog-a5a41.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:906191698637:android:5761662dba87197e3e8784",
+        "android_client_info": {
+          "package_name": "com.example.firebaselog"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD8czGB1EE329nte0F8J5FZVQ3IT30qO1E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
