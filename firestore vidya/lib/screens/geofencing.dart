@@ -147,7 +147,8 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                   border: OutlineInputBorder(),
                   labelText: 'Enter radius (meters)',
                 ),
-                keyboardType: TextInputType.number,
+                keyboardType:TextInputType.numberWithOptions(decimal: true), // Allow decimal numbers
+                // Limit the maximum length of input to 5 characters
               ),
               SizedBox(height: 10),
               TextField(
@@ -216,10 +217,12 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   }
 
   Future<void> startAttendance() async {
+    // Convert the radius to double
+
     await Geofence.startGeofenceService(
       pointedLatitude: location.split(', ')[0].split(': ')[1],
       pointedLongitude: location.split(', ')[1].split(': ')[1],
-      radiusMeter: radiusController.text.isEmpty ? '50' : radiusController.text,
+      radiusMeter: radiusController.text, // Use the user-entered radius
       eventPeriodInSeconds: 10,
     );
     if (geofenceEventStream == null) {
@@ -252,6 +255,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       });
     }
   }
+
 
   void startExitTimer(int duration) {
     exitTimer = Timer(Duration(seconds: duration), () async {
