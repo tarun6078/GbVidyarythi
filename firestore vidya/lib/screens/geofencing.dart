@@ -1,9 +1,9 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter/services.dart';
-import 'package:geofence_flutter/geofence_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -37,21 +37,27 @@ class MyGeofencePage extends StatefulWidget {
 }
 
 class _MyGeofencePageState extends State<MyGeofencePage> {
-  StreamSubscription<GeofenceEvent>? geofenceEventStream;
+  StreamSubscription<Position>? positionStream;
   String geofenceEvent = '';
   String location = '';
   String address = '';
   TextEditingController radiusController = TextEditingController();
+  TextEditingController lengthController = TextEditingController();
+  TextEditingController breadthController = TextEditingController();
   TextEditingController timerController = TextEditingController();
   bool isAttendanceStopped = false;
   bool isEntryRecorded = false;
   bool isExitRecorded = false;
-  bool isGeofenceInitialized = false;
   late String? userId;
-  late String? userName;
+  String? userName;
   late int timerDuration;
 
   Timer? exitTimer;
+
+  String _geofenceType = 'outdoor';
+
+  double? baseLatitude;
+  double? baseLongitude;
 
   @override
   void initState() {
@@ -62,15 +68,27 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   Future<void> getUserData() async {
     User? user = FirebaseAuth.instance.currentUser;
     userId = user?.uid;
-    FirebaseFirestore.instance.collection('users').doc(userId).get().then((doc) {
-      if (doc.exists) {
-        setState(() {
-          userName = doc['firstName'];
-        });
-      } else {
-        print('No such document!');
-      }
-    });
+
+    // Check if the user is in the "users" collection
+    DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+    if (userDoc.exists) {
+      setState(() {
+        userName = userDoc['name']; // Fetch the 'Name' field from Firestore
+      });
+      return;
+    }
+
+    // Check if the user is in the "admins" collection
+    DocumentSnapshot adminDoc = await FirebaseFirestore.instance.collection('admins').doc(userId).get();
+    if (adminDoc.exists) {
+      setState(() {
+        userName = adminDoc['name']; // Fetch the 'Name' field from Firestore
+      });
+      return;
+    }
+
+    // If the user is not found in both collections, handle accordingly
+    print('User not found!');
   }
 
   Future<void> _getCurrentLocation() async {
@@ -78,6 +96,8 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     await getAddressFromLatLong(position);
     setState(() {
       location = 'Lat: ${position.latitude} , Long: ${position.longitude}';
+      baseLatitude = position.latitude;
+      baseLongitude = position.longitude;
     });
   }
 
@@ -141,15 +161,50 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
               )
                   : SizedBox.shrink(),
               SizedBox(height: 10),
-              TextField(
-                controller: radiusController,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Enter radius (meters)',
-                ),
-                keyboardType:TextInputType.numberWithOptions(decimal: true), // Allow decimal numbers
-                // Limit the maximum length of input to 5 characters
+              DropdownButton<String>(
+                value: _geofenceType,
+                onChanged: (String? newValue) {
+                  setState(() {
+                    _geofenceType = newValue!;
+                  });
+                },
+                items: <String>['indoor', 'outdoor']
+                    .map<DropdownMenuItem<String>>((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value),
+                  );
+                }).toList(),
               ),
+              SizedBox(height: 10),
+              if (_geofenceType == 'outdoor') ...[
+                TextField(
+                  controller: radiusController,
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Enter radius (meters)',
+                  ),
+                  keyboardType: TextInputType.numberWithOptions(decimal: true),
+                ),
+              ] else ...[
+                TextField(
+                  controller: lengthController,
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Enter length (meters)',
+                  ),
+                  keyboardType: TextInputType.numberWithOptions(decimal: true),
+                ),
+                SizedBox(height: 10),
+                TextField(
+                  controller: breadthController,
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Enter breadth (meters)',
+                  ),
+                  keyboardType: TextInputType.numberWithOptions(decimal: true),
+                ),
+              ],
               SizedBox(height: 10),
               TextField(
                 controller: timerController,
@@ -202,7 +257,8 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => AttendanceRecordPage(userId: userId, userName: userName),
+                          builder: (context) =>
+                              AttendanceRecordPage(userId: userId, userName: userName),
                         ),
                       );
                     },
@@ -217,19 +273,27 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   }
 
   Future<void> startAttendance() async {
-    // Convert the radius to double
+    await _getCurrentLocation();
 
-    await Geofence.startGeofenceService(
-      pointedLatitude: location.split(', ')[0].split(': ')[1],
-      pointedLongitude: location.split(', ')[1].split(': ')[1],
-      radiusMeter: radiusController.text, // Use the user-entered radius
-      eventPeriodInSeconds: 10,
-    );
-    if (geofenceEventStream == null) {
-      geofenceEventStream = Geofence.getGeofenceStream()?.listen((GeofenceEvent event) async {
-        print(event.toString());
+    if (positionStream == null) {
+      positionStream = Geolocator.getPositionStream(
+        locationSettings: LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 1,
+        ),
+      ).listen((Position position) async {
         if (!isAttendanceStopped) {
-          if (event == GeofenceEvent.enter) {
+          bool insideGeofence;
+          if (_geofenceType == 'outdoor') {
+            double radius = double.tryParse(radiusController.text) ?? 0;
+            insideGeofence = _isInsideCircularGeofence(position, baseLatitude!, baseLongitude!, radius);
+          } else {
+            double length = double.tryParse(lengthController.text) ?? 0;
+            double breadth = double.tryParse(breadthController.text) ?? 0;
+            insideGeofence = _isInsideRectangularGeofence(position, baseLatitude!, baseLongitude!, length, breadth);
+          }
+
+          if (insideGeofence) {
             if (!isEntryRecorded) {
               await saveAttendance(GeofenceEvent.init, address);
               await saveAttendance(GeofenceEvent.enter, address);
@@ -237,14 +301,14 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                 isEntryRecorded = true;
               });
               _showEventDialog(GeofenceEvent.init.toString());
-              _showEventDialog(event.toString());
+              _showEventDialog(GeofenceEvent.enter.toString());
               int timer = int.tryParse(timerController.text) ?? 5;
               startExitTimer(timer);
             }
-          } else if (event == GeofenceEvent.exit && isEntryRecorded) {
+          } else if (isEntryRecorded) {
             if (!isExitRecorded) {
               cancelExitTimer(); // Cancel the exit timer if person exits before the time frame
-              _showEventDialog(event.toString());
+              _showEventDialog(GeofenceEvent.exit.toString());
               setState(() {
                 isExitRecorded = true;
               });
@@ -256,6 +320,25 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     }
   }
 
+  bool _isInsideCircularGeofence(Position position, double centerLatitude, double centerLongitude, double radius) {
+    double distance = Geolocator.distanceBetween(position.latitude, position.longitude, centerLatitude, centerLongitude);
+    return distance <= radius;
+  }
+
+  bool _isInsideRectangularGeofence(Position position, double baseLatitude, double baseLongitude, double length, double breadth) {
+    double halfLength = length / 2;
+    double halfBreadth = breadth / 2;
+
+    double northBound = baseLatitude + (halfLength / 111320);
+    double southBound = baseLatitude - (halfLength / 111320);
+    double eastBound = baseLongitude + (halfBreadth / (111320 * cos(baseLatitude * (pi / 180))));
+    double westBound = baseLongitude - (halfBreadth / (111320 * cos(baseLatitude * (pi / 180))));
+
+    return position.latitude <= northBound &&
+        position.latitude >= southBound &&
+        position.longitude <= eastBound &&
+        position.longitude >= westBound;
+  }
 
   void startExitTimer(int duration) {
     exitTimer = Timer(Duration(seconds: duration), () async {
@@ -271,8 +354,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     setState(() {
       isAttendanceStopped = true;
     });
-    await Geofence.stopGeofenceService();
-    geofenceEventStream?.cancel();
+    positionStream?.cancel();
     cancelExitTimer(); // Cancel the timer when attendance is stopped
   }
 
@@ -409,3 +491,5 @@ class _AttendanceRecordPageState extends State<AttendanceRecordPage> {
     );
   }
 }
+
+enum GeofenceEvent { enter, exit, init }
