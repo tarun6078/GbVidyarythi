@@ -357,14 +357,13 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     positionStream?.cancel();
     cancelExitTimer(); // Cancel the timer when attendance is stopped
   }
-
   Future<void> saveAttendance(GeofenceEvent event, String address) async {
     if (!isExitRecorded || event == GeofenceEvent.enter) {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       List<String>? attendanceList = prefs.getStringList(userId!) ?? [];
       String formattedDateTime = DateTime.now().toString();
       String eventText = _getEventText(event);
-      attendanceList.add('$userName - $formattedDateTime - $eventText - Address: $address');
+      attendanceList.add('$formattedDateTime - $eventText - Address: $address');
       await prefs.setStringList(userId!, attendanceList);
     }
   }
@@ -417,7 +416,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       String formattedDateTime = DateTime.now().toString();
       String eventText = _getEventText(GeofenceEvent.exit);
       List<String>? attendanceList = prefs.getStringList(userId!) ?? [];
-      attendanceList.add('$userName - $formattedDateTime - $eventText - Address: $address');
+      attendanceList.add('$formattedDateTime - $eventText - Address: $address');
       await prefs.setStringList(userId!, attendanceList);
       setState(() {
         isExitRecorded = true;
@@ -479,11 +478,35 @@ class _AttendanceRecordPageState extends State<AttendanceRecordPage> {
           : ListView.builder(
         itemCount: _attendanceRecords.length,
         itemBuilder: (context, index) {
-          return ListTile(
-            title: Text(_attendanceRecords[index]),
-            trailing: IconButton(
-              icon: Icon(Icons.delete),
-              onPressed: () => _deleteAttendanceRecord(index),
+          return Dismissible(
+            key: Key(_attendanceRecords[index]),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              alignment: Alignment.centerRight,
+              color: Colors.purple,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20.0),
+                child: Icon(Icons.delete, color: Colors.white),
+              ),
+            ),
+            onDismissed: (direction) {
+              _deleteAttendanceRecord(index);
+            },
+            child: ListTile(
+              title: RichText(
+                text: TextSpan(
+                  style: DefaultTextStyle.of(context).style,
+                  children: <TextSpan>[
+                    TextSpan(
+                      text: '${widget.userName} - ',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    TextSpan(
+                      text: _attendanceRecords[index],
+                    ),
+                  ],
+                ),
+              ),
             ),
           );
         },
@@ -491,5 +514,6 @@ class _AttendanceRecordPageState extends State<AttendanceRecordPage> {
     );
   }
 }
+
 
 enum GeofenceEvent { enter, exit, init }
