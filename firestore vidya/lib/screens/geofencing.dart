@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -45,6 +44,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   TextEditingController lengthController = TextEditingController();
   TextEditingController breadthController = TextEditingController();
   TextEditingController timerController = TextEditingController();
+  TextEditingController areaNameController = TextEditingController();
   bool isAttendanceStopped = false;
   bool isEntryRecorded = false;
   bool isExitRecorded = false;
@@ -59,10 +59,14 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   double? baseLatitude;
   double? baseLongitude;
 
+  List<String> savedAreas = [];
+  Map<String, Map<String, dynamic>> areaParameters = {};
+
   @override
   void initState() {
     super.initState();
     getUserData();
+    _loadSavedAreas();
   }
 
   Future<void> getUserData() async {
@@ -138,138 +142,60 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-      ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(10.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                "Geofence Event: " + geofenceEvent,
-              ),
-              SizedBox(height: 10),
-              userName != null
-                  ? Text(
-                "Welcome, $userName!",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              )
-                  : SizedBox.shrink(),
-              SizedBox(height: 10),
-              DropdownButton<String>(
-                value: _geofenceType,
-                onChanged: (String? newValue) {
-                  setState(() {
-                    _geofenceType = newValue!;
-                  });
-                },
-                items: <String>['indoor', 'outdoor']
-                    .map<DropdownMenuItem<String>>((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value),
-                  );
-                }).toList(),
-              ),
-              SizedBox(height: 10),
-              if (_geofenceType == 'outdoor') ...[
-                TextField(
-                  controller: radiusController,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(),
-                    labelText: 'Enter radius (meters)',
-                  ),
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
-                ),
-              ] else ...[
-                TextField(
-                  controller: lengthController,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(),
-                    labelText: 'Enter length (meters)',
-                  ),
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
-                ),
-                SizedBox(height: 10),
-                TextField(
-                  controller: breadthController,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(),
-                    labelText: 'Enter breadth (meters)',
-                  ),
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
-                ),
-              ],
-              SizedBox(height: 10),
-              TextField(
-                controller: timerController,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Enter timer duration (seconds)',
-                ),
-                keyboardType: TextInputType.number,
-              ),
-              SizedBox(height: 10),
-              Text('Current Location: $location'),
-              SizedBox(height: 10),
-              Text('Current Address: $address'),
-              SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  ElevatedButton(
-                    child: Text("Start"),
-                    onPressed: () async {
-                      print("start");
-                      await startAttendance();
-                    },
-                  ),
-                  SizedBox(
-                    width: 10.0,
-                  ),
-                  ElevatedButton(
-                    child: Text("Stop"),
-                    onPressed: () async {
-                      print("stop");
-                      await stopAttendance();
-                    },
-                  ),
-                ],
-              ),
-              SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  ElevatedButton(
-                    onPressed: () async {
-                      await _getCurrentLocation();
-                    },
-                    child: Text('Get Location'),
-                  ),
-                  ElevatedButton(
-                    child: Text("Attendance Records"),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              AttendanceRecordPage(userId: userId, userName: userName),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  Future<void> _loadSavedAreas() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String>? areaList = prefs.getStringList('savedAreas');
+    if (areaList != null) {
+      setState(() {
+        savedAreas = areaList;
+        for (String area in areaList) {
+          areaParameters[area] = {
+            'type': prefs.getString('$area-type'),
+            'radius': prefs.getString('$area-radius'),
+            'length': prefs.getString('$area-length'),
+            'breadth': prefs.getString('$area-breadth'),
+          };
+        }
+      });
+    }
+  }
+
+  Future<void> _saveAreaParameters() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String areaName = areaNameController.text.trim();
+    if (areaName.isNotEmpty) {
+      setState(() {
+        savedAreas.add(areaName);
+        areaParameters[areaName] = {
+          'type': _geofenceType,
+          'radius': radiusController.text,
+          'length': lengthController.text,
+          'breadth': breadthController.text,
+        };
+      });
+      await prefs.setStringList('savedAreas', savedAreas);
+      await prefs.setString('$areaName-type', _geofenceType);
+      await prefs.setString('$areaName-radius', radiusController.text);
+      await prefs.setString('$areaName-length', lengthController.text);
+      await prefs.setString('$areaName-breadth', breadthController.text);
+      areaNameController.clear();
+      radiusController.clear();
+      lengthController.clear();
+      breadthController.clear();
+    }
+  }
+
+  Future<void> _deleteAreaParameters(String areaName) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      savedAreas.remove(areaName);
+      areaParameters.remove(areaName);
+    });
+    await prefs.setStringList('savedAreas', savedAreas);
+    await prefs.remove('$areaName-type');
+    await prefs.remove('$areaName-radius');
+    await prefs.remove('$areaName-length');
+    await prefs.remove('$areaName-breadth');
   }
 
   Future<void> startAttendance() async {
@@ -424,6 +350,203 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       });
     }
   }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+      ),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(10.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                "Geofence Event: " + geofenceEvent,
+              ),
+              SizedBox(height: 10),
+              userName != null
+                  ? Text(
+                "Welcome, $userName!",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              )
+                  : SizedBox.shrink(),
+              SizedBox(height: 10),
+              DropdownButton<String>(
+                value: _geofenceType,
+                onChanged: (String? newValue) {
+                  setState(() {
+                    _geofenceType = newValue!;
+                  });
+                },
+                items: <String>['indoor', 'outdoor']
+                    .map<DropdownMenuItem<String>>((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value),
+                  );
+                }).toList(),
+              ),
+              SizedBox(height: 10),
+              if (_geofenceType == 'outdoor') ...[
+                TextField(
+                  controller: radiusController,
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Enter radius (meters)',
+                  ),
+                  keyboardType: TextInputType.numberWithOptions(decimal: true),
+                ),
+              ] else ...[
+                TextField(
+                  controller: lengthController,
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Enter length (meters)',
+                  ),
+                  keyboardType: TextInputType.numberWithOptions(decimal: true),
+                ),
+                SizedBox(height: 10),
+                TextField(
+                  controller: breadthController,
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Enter breadth (meters)',
+                  ),
+                  keyboardType: TextInputType.numberWithOptions(decimal: true),
+                ),
+              ],
+              SizedBox(height: 10),
+              TextField(
+                controller: timerController,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Enter timer duration (seconds)',
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              SizedBox(height: 10),
+              TextField(
+                controller: areaNameController,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Enter area name',
+                ),
+              ),
+              SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ElevatedButton(
+                    onPressed: () async {
+                      await _saveAreaParameters();
+                    },
+                    child: Text('Save Area'),
+                  ),
+                ],
+              ),
+              SizedBox(height: 10),
+              Text('Current Location: $location'),
+              SizedBox(height: 10),
+              Text('Current Address: $address'),
+              SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ElevatedButton(
+                    child: Text("Start"),
+                    onPressed: () async {
+                      print("start");
+                      await startAttendance();
+                    },
+                  ),
+                  SizedBox(
+                    width: 10.0,
+                  ),
+                  ElevatedButton(
+                    child: Text("Stop"),
+                    onPressed: () async {
+                      print("stop");
+                      await stopAttendance();
+                    },
+                  ),
+                ],
+              ),
+              SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  ElevatedButton(
+                    onPressed: () async {
+                      await _getCurrentLocation();
+                    },
+                    child: Text('Get Location'),
+                  ),
+                  ElevatedButton(
+                    child: Text("Attendance Records"),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              AttendanceRecordPage(userId: userId, userName: userName),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              SizedBox(height: 10),
+              Text('Saved Areas:'),
+              savedAreas.isEmpty
+                  ? Text('No saved areas.')
+                  : ListView.builder(
+                shrinkWrap: true,
+                physics: NeverScrollableScrollPhysics(),
+                itemCount: savedAreas.length,
+                itemBuilder: (context, index) {
+                  String areaName = savedAreas[index];
+                  return Dismissible(
+                    key: Key(areaName),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      color: Colors.purple,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 10.0),
+                        child: Icon(Icons.delete, color: Colors.white),
+                      ),
+                    ),
+                    onDismissed: (direction) async {
+                      await _deleteAreaParameters(areaName);
+                    },
+                    child: Card(
+                      child: ListTile(
+                        title: Text(areaName),
+                        subtitle: Text(
+                            'Type: ${areaParameters[areaName]!['type']}, Radius: ${areaParameters[areaName]!['radius']}, Length: ${areaParameters[areaName]!['length']}, Breadth: ${areaParameters[areaName]!['breadth']}'),
+                        onTap: () {
+                          setState(() {
+                            _geofenceType = areaParameters[areaName]!['type'];
+                            radiusController.text = areaParameters[areaName]!['radius'] ?? '';
+                            lengthController.text = areaParameters[areaName]!['length'] ?? '';
+                            breadthController.text = areaParameters[areaName]!['breadth'] ?? '';
+                          });
+                        },
+                      ),
+                    ),
+                  );
+                },
+              ),
+
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class AttendanceRecordPage extends StatefulWidget {
@@ -514,6 +637,36 @@ class _AttendanceRecordPageState extends State<AttendanceRecordPage> {
     );
   }
 }
-
-
 enum GeofenceEvent { enter, exit, init }
+
+class AreaParameters {
+  final String type;
+  final String? radius;
+  final String? length;
+  final String? breadth;
+
+  AreaParameters({
+    required this.type,
+    this.radius,
+    this.length,
+    this.breadth,
+  });
+
+  Map<String, String?> toMap() {
+    return {
+      'type': type,
+      'radius': radius,
+      'length': length,
+      'breadth': breadth,
+    };
+  }
+
+  factory AreaParameters.fromMap(Map<String, String?> map) {
+    return AreaParameters(
+      type: map['type']!,
+      radius: map['radius'],
+      length: map['length'],
+      breadth: map['breadth'],
+    );
+  }
+}
