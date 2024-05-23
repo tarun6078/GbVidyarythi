@@ -51,6 +51,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   late String? userId;
   String? userName;
   late int timerDuration;
+  bool _isAdmin = false;
 
   Timer? exitTimer;
 
@@ -77,7 +78,8 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
     if (userDoc.exists) {
       setState(() {
-        userName = userDoc['name']; // Fetch the 'Name' field from Firestore
+        userName = userDoc['name'];// Fetch the 'Name' field from Firestore
+        _isAdmin = false;
       });
       return;
     }
@@ -86,7 +88,8 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     DocumentSnapshot adminDoc = await FirebaseFirestore.instance.collection('admins').doc(userId).get();
     if (adminDoc.exists) {
       setState(() {
-        userName = adminDoc['name']; // Fetch the 'Name' field from Firestore
+        userName = adminDoc['name'];// Fetch the 'Name' field from Firestore
+        _isAdmin = true;
       });
       return;
     }
@@ -291,17 +294,26 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       String eventText = _getEventText(event);
       attendanceList.add('$formattedDateTime - $eventText - Address: $address');
       await prefs.setStringList(userId!, attendanceList);
+      await FirebaseFirestore.instance.collection('attendance').add({
+        'userId': userId,
+        'userName': userName,
+        'event': eventText,
+        'address': address,
+        'timestamp': formattedDateTime,
+      });
     }
   }
 
+
   String _getEventText(GeofenceEvent event) {
     switch (event) {
+      case GeofenceEvent.init:
+        return 'Initialized geofence';
       case GeofenceEvent.enter:
         return 'Entered the location';
       case GeofenceEvent.exit:
         return 'Exited the location';
-      case GeofenceEvent.init:
-        return 'Initialized geofence';
+
       default:
         return 'Unknown event';
     }
@@ -344,12 +356,21 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       List<String>? attendanceList = prefs.getStringList(userId!) ?? [];
       attendanceList.add('$formattedDateTime - $eventText - Address: $address');
       await prefs.setStringList(userId!, attendanceList);
+      await FirebaseFirestore.instance.collection('attendance').add({
+        'userId': userId,
+        'userName': userName,
+        'event': eventText,
+        'address': address,
+        'timestamp': formattedDateTime,
+      });
       setState(() {
         isExitRecorded = true;
         geofenceEvent = GeofenceEvent.exit.toString();
       });
+
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -437,8 +458,14 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
               ),
               SizedBox(height: 10),
               Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  ElevatedButton(
+                    onPressed: () async {
+                      await _getCurrentLocation();
+                    },
+                    child: Text('Get Location'),
+                  ),
                   ElevatedButton(
                     onPressed: () async {
                       await _saveAreaParameters();
@@ -479,12 +506,6 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   ElevatedButton(
-                    onPressed: () async {
-                      await _getCurrentLocation();
-                    },
-                    child: Text('Get Location'),
-                  ),
-                  ElevatedButton(
                     child: Text("Attendance Records"),
                     onPressed: () {
                       Navigator.push(
@@ -494,6 +515,18 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                               AttendanceRecordPage(userId: userId, userName: userName),
                         ),
                       );
+                    },
+                  ),
+                  if (_isAdmin)
+                    ElevatedButton(
+                    child: Text("Users Attendance"),
+                    onPressed: () { Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => UsersAttendancePage(),
+                      ),
+                    );
+                      // Navigate to Users Attendance page
                     },
                   ),
                 ],
@@ -540,13 +573,13 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                   );
                 },
               ),
-
             ],
           ),
         ),
       ),
     );
   }
+
 }
 
 class AttendanceRecordPage extends StatefulWidget {
@@ -667,6 +700,85 @@ class AreaParameters {
       radius: map['radius'],
       length: map['length'],
       breadth: map['breadth'],
+    );
+  }
+}
+class UsersAttendancePage extends StatefulWidget {
+  @override
+  _UsersAttendancePageState createState() => _UsersAttendancePageState();
+}
+
+class _UsersAttendancePageState extends State<UsersAttendancePage> {
+  late Stream<QuerySnapshot> _attendanceStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _attendanceStream = FirebaseFirestore.instance.collection('attendance').snapshots();
+  }
+
+  Future<void> _deleteRecord(String documentId) async {
+    await FirebaseFirestore.instance.collection('attendance').doc(documentId).delete();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('All Users Attendance'),
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _attendanceStream,
+        builder: (BuildContext context, AsyncSnapshot<QuerySnapshot> snapshot) {
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+
+          final data = snapshot.requireData;
+
+          if (data.docs.isEmpty) {
+            return Center(child: Text('No attendance records available.'));
+          }
+
+          return ListView.builder(
+            itemCount: data.size,
+            itemBuilder: (context, index) {
+              final record = data.docs[index];
+
+              return Dismissible(
+                key: Key(record.id),
+                background: Container(color: Colors.purple, child: Icon(Icons.delete, color: Colors.white)),
+                onDismissed: (direction) {
+                  _deleteRecord(record.id);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Record deleted")),
+                  );
+                },
+                child: ListTile(
+                  title: Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: '${record['userName']}',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        TextSpan(
+                          text: ' - ${record['event']}',
+                        ),
+                      ],
+                    ),
+                  ),
+                  subtitle: Text('Address: ${record['address']}\nTime: ${record['timestamp']}'),
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }
