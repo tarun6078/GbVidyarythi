@@ -53,6 +53,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   late int timerDuration;
   bool _isAdmin = false;
 
+
   Timer? exitTimer;
 
   String _geofenceType = 'outdoor';
@@ -166,27 +167,58 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   Future<void> _saveAreaParameters() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String areaName = areaNameController.text.trim();
-    if (areaName.isNotEmpty) {
-      setState(() {
-        savedAreas.add(areaName);
-        areaParameters[areaName] = {
-          'type': _geofenceType,
-          'radius': radiusController.text,
-          'length': lengthController.text,
-          'breadth': breadthController.text,
-        };
-      });
-      await prefs.setStringList('savedAreas', savedAreas);
-      await prefs.setString('$areaName-type', _geofenceType);
-      await prefs.setString('$areaName-radius', radiusController.text);
-      await prefs.setString('$areaName-length', lengthController.text);
-      await prefs.setString('$areaName-breadth', breadthController.text);
-      areaNameController.clear();
-      radiusController.clear();
-      lengthController.clear();
-      breadthController.clear();
+
+    // Check if the area name already exists
+    if (savedAreas.contains(areaName)) {
+      // Display an error message or handle the duplicate name scenario
+      // For example, you can show a snackbar or dialog
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: Text("Error"),
+            content: Text("Area with the same name already exists."),
+            actions: <Widget>[
+              TextButton(
+                child: Text("OK"),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
+          );
+        },
+      );
+      return;
     }
+
+    // If the area name is unique, proceed with saving
+    setState(() {
+      savedAreas.add(areaName);
+      areaParameters[areaName] = {
+        'type': _geofenceType,
+        'radius': radiusController.text,
+        'length': lengthController.text,
+        'breadth': breadthController.text,
+      };
+    });
+    await FirebaseFirestore.instance.collection('areas').doc(areaName).set({
+      'type': _geofenceType,
+      'radius': radiusController.text,
+      'length': lengthController.text,
+      'breadth': breadthController.text,
+    });
+    await prefs.setStringList('savedAreas', savedAreas);
+    await prefs.setString('$areaName-type', _geofenceType);
+    await prefs.setString('$areaName-radius', radiusController.text);
+    await prefs.setString('$areaName-length', lengthController.text);
+    await prefs.setString('$areaName-breadth', breadthController.text);
+    areaNameController.clear();
+    radiusController.clear();
+    lengthController.clear();
+    breadthController.clear();
   }
+
 
   Future<void> _deleteAreaParameters(String areaName) async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -199,6 +231,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     await prefs.remove('$areaName-radius');
     await prefs.remove('$areaName-length');
     await prefs.remove('$areaName-breadth');
+    await FirebaseFirestore.instance.collection('areas').doc(areaName).delete();
   }
 
   Future<void> startAttendance() async {
@@ -292,13 +325,17 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       List<String>? attendanceList = prefs.getStringList(userId!) ?? [];
       String formattedDateTime = DateTime.now().toString();
       String eventText = _getEventText(event);
-      attendanceList.add('$formattedDateTime - $eventText - Address: $address');
+      String areaName = areaNameController.text.trim(); // Get the area name
+
+      attendanceList.add('$formattedDateTime - $eventText - Address: $address - Area: $areaName');
       await prefs.setStringList(userId!, attendanceList);
+
       await FirebaseFirestore.instance.collection('attendance').add({
         'userId': userId,
         'userName': userName,
         'event': eventText,
         'address': address,
+        'areaName': areaName.isNotEmpty ? areaName : 'Unknown',  // Save the area name in Firestore
         'timestamp': formattedDateTime,
       });
     }
@@ -313,8 +350,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
         return 'Entered the location';
       case GeofenceEvent.exit:
         return 'Exited the location';
-
-      default:
+        default:
         return 'Unknown event';
     }
   }
@@ -353,13 +389,15 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       String formattedDateTime = DateTime.now().toString();
       String eventText = _getEventText(GeofenceEvent.exit);
+      String areaName = areaNameController.text.trim();
       List<String>? attendanceList = prefs.getStringList(userId!) ?? [];
-      attendanceList.add('$formattedDateTime - $eventText - Address: $address');
+      attendanceList.add('$formattedDateTime - $eventText - Address: $address Area: $areaName');
       await prefs.setStringList(userId!, attendanceList);
       await FirebaseFirestore.instance.collection('attendance').add({
         'userId': userId,
         'userName': userName,
         'event': eventText,
+        'areaName': areaName.isNotEmpty ? areaName : 'Unknown',
         'address': address,
         'timestamp': formattedDateTime,
       });
@@ -466,6 +504,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                     },
                     child: Text('Get Location'),
                   ),
+                  if(_isAdmin)
                   ElevatedButton(
                     onPressed: () async {
                       await _saveAreaParameters();
@@ -543,7 +582,9 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                   String areaName = savedAreas[index];
                   return Dismissible(
                     key: Key(areaName),
-                    direction: DismissDirection.endToStart,
+                    direction: _isAdmin
+                        ? DismissDirection.endToStart
+                        : DismissDirection.none,
                     background: Container(
                       alignment: Alignment.centerRight,
                       color: Colors.purple,
@@ -566,6 +607,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                             radiusController.text = areaParameters[areaName]!['radius'] ?? '';
                             lengthController.text = areaParameters[areaName]!['length'] ?? '';
                             breadthController.text = areaParameters[areaName]!['breadth'] ?? '';
+                            areaNameController.text = areaName;
                           });
                         },
                       ),
@@ -670,6 +712,7 @@ class _AttendanceRecordPageState extends State<AttendanceRecordPage> {
     );
   }
 }
+
 enum GeofenceEvent { enter, exit, init }
 
 class AreaParameters {
@@ -691,6 +734,7 @@ class AreaParameters {
       'radius': radius,
       'length': length,
       'breadth': breadth,
+
     };
   }
 
@@ -749,6 +793,13 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
             itemBuilder: (context, index) {
               final record = data.docs[index];
 
+              // Safely accessing fields with null checks
+              final userName = record['userName'] ?? 'Unknown';
+              final event = record['event'] ?? 'Unknown event';
+              final areaName = record['areaName'] ?? 'Unknown area';
+              final address = record['address'] ?? 'No address';
+              final timestamp = record['timestamp'] ?? 'Unknown time';
+
               return Dismissible(
                 key: Key(record.id),
                 background: Container(color: Colors.purple, child: Icon(Icons.delete, color: Colors.white)),
@@ -763,16 +814,16 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
                     TextSpan(
                       children: [
                         TextSpan(
-                          text: '${record['userName']}',
+                          text: userName,
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         TextSpan(
-                          text: ' - ${record['event']}',
+                          text: ' - $event - $areaName',
                         ),
                       ],
                     ),
                   ),
-                  subtitle: Text('Address: ${record['address']}\nTime: ${record['timestamp']}'),
+                  subtitle: Text('Address: $address\nTime: $timestamp'),
                 ),
               );
             },
@@ -782,3 +833,4 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
     );
   }
 }
+
