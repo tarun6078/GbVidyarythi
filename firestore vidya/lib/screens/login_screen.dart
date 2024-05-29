@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:firebaselog/screens/feature.dart';
-import 'package:firebaselog/screens/registration_screen.dart';
+import 'package:Vidyarthi/screens/feature.dart';
+import 'package:Vidyarthi/screens/registration_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fluttertoast/fluttertoast.dart';
-import 'package:firebaselog/screens/forgotten.dart';
+import 'package:Vidyarthi/screens/forgotten.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -28,6 +29,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // loading indicator flag
   bool _isLoading = false;
+
+  // UserType
+  UserType _selectedUserType = UserType.User;
 
   // Function to show loading indicator
   Widget buildLoadingIndicator() {
@@ -103,14 +107,17 @@ class _LoginScreenState extends State<LoginScreen> {
                           textInputAction: TextInputAction.next,
                           decoration: InputDecoration(
                             prefixIcon: Icon(Icons.mail),
-                            contentPadding: EdgeInsets.fromLTRB(20, 15, 20, 15),
+                            contentPadding:
+                            EdgeInsets.fromLTRB(20, 15, 20, 15),
                             hintText: "Email",
                             enabledBorder: OutlineInputBorder(
-                              borderSide: BorderSide(color: Colors.black, width: 2.0),
+                              borderSide:
+                              BorderSide(color: Colors.black, width: 2.0),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderSide: BorderSide(color: Colors.purple, width: 2.0),
+                              borderSide:
+                              BorderSide(color: Colors.purple, width: 2.0),
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
@@ -127,7 +134,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               return ("Password is required for login");
                             }
                             if (!regex.hasMatch(value)) {
-                              return ("Enter Valid Password(Min. 6 Character)");
+                              return (
+                                  "Enter Valid Password(Min. 6 Character)");
                             }
                             return null;
                           },
@@ -137,17 +145,37 @@ class _LoginScreenState extends State<LoginScreen> {
                           textInputAction: TextInputAction.done,
                           decoration: InputDecoration(
                             prefixIcon: Icon(Icons.vpn_key),
-                            contentPadding: EdgeInsets.fromLTRB(20, 15, 20, 15),
+                            contentPadding:
+                            EdgeInsets.fromLTRB(20, 15, 20, 15),
                             hintText: "Password",
                             enabledBorder: OutlineInputBorder(
-                              borderSide: BorderSide(color: Colors.black, width: 2.0),
+                              borderSide:
+                              BorderSide(color: Colors.black, width: 2.0),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderSide: BorderSide(color: Colors.purple, width: 2.0),
+                              borderSide:
+                              BorderSide(color: Colors.purple, width: 2.0),
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
+                        ),
+                        SizedBox(height: 25),
+                        // UserType dropdown
+                        DropdownButtonFormField<UserType>(
+                          value: _selectedUserType,
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedUserType = value!;
+                            });
+                          },
+                          items: UserType.values.map((type) {
+                            return DropdownMenuItem<UserType>(
+                              value: type,
+                              child: Text(
+                                  type == UserType.User ? "User" : "Admin"),
+                            );
+                          }).toList(),
                         ),
                         SizedBox(height: 35),
                         // Login button
@@ -156,10 +184,12 @@ class _LoginScreenState extends State<LoginScreen> {
                             Material(
                               elevation: 5,
                               borderRadius: BorderRadius.circular(30),
-                              color: Colors.purple,
+                              color: Colors.black,
                               child: MaterialButton(
-                                padding: EdgeInsets.fromLTRB(20, 15, 20, 15),
-                                minWidth: MediaQuery.of(context).size.width,
+                                padding:
+                                EdgeInsets.fromLTRB(20, 15, 20, 15),
+                                minWidth:
+                                MediaQuery.of(context).size.width,
                                 onPressed: () {
                                   signIn(
                                     emailController.text,
@@ -187,14 +217,15 @@ class _LoginScreenState extends State<LoginScreen> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => ForgotPasswordScreen(),
+                                builder: (context) =>
+                                    ForgotPasswordScreen(),
                               ),
                             );
                           },
                           child: Text(
                             "Forgot Password?",
                             style: TextStyle(
-                              color: Colors.purple,
+                              color: Colors.black,
                               fontWeight: FontWeight.bold,
                               fontSize: 15,
                             ),
@@ -219,7 +250,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               child: Text(
                                 "SignUp",
                                 style: TextStyle(
-                                  color: Colors.purple,
+                                  color: Colors.black,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 15,
                                 ),
@@ -252,11 +283,46 @@ class _LoginScreenState extends State<LoginScreen> {
           email: email,
           password: password,
         )
-            .then((uid) => {
-          Fluttertoast.showToast(msg: "Login Successful"),
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => HomePage()),
-          ),
+            .then((userCredential) async {
+          if (_selectedUserType == UserType.Admin) {
+            // Check if user is admin in admins collection
+            final adminSnapshot = await FirebaseFirestore.instance
+                .collection('admins')
+                .doc(userCredential.user!.uid)
+                .get();
+
+            if (adminSnapshot.exists) {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => HomePage()),
+                    (route) => false,
+              );
+            } else {
+              throw FirebaseAuthException(
+                code: 'unauthorized',
+                message: 'You are not authorized as an admin',
+              );
+            }
+          } else {
+            // Check if user is present in users collection
+            final userSnapshot = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(userCredential.user!.uid)
+                .get();
+
+            if (userSnapshot.exists) {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => HomePage()),
+                    (route) => false,
+              );
+            } else {
+              throw FirebaseAuthException(
+                code: 'unauthorized',
+                message: 'User not found in database',
+              );
+            }
+          }
         });
       } on FirebaseAuthException catch (error) {
         switch (error.code) {
@@ -279,6 +345,9 @@ class _LoginScreenState extends State<LoginScreen> {
             errorMessage =
             "Signing in with Email and Password is not enabled.";
             break;
+          case "unauthorized":
+            errorMessage = error.message;
+            break;
           default:
             errorMessage = "An undefined Error happened.";
         }
@@ -291,4 +360,9 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     }
   }
+}
+
+enum UserType {
+  User,
+  Admin,
 }
