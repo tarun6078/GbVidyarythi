@@ -1,9 +1,9 @@
-import 'package:firebaselog/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebaselog/model/user_model.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:Vidyarthi/model/user_model.dart';
+import 'package:Vidyarthi/screens/login_screen.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({Key? key}) : super(key: key);
@@ -14,22 +14,16 @@ class RegistrationScreen extends StatefulWidget {
 
 class _RegistrationScreenState extends State<RegistrationScreen> {
   final _auth = FirebaseAuth.instance;
-
-  // string for displaying the error Message
   String? errorMessage;
-
-  // our form key
   final _formKey = GlobalKey<FormState>();
-
-  // editing Controller
   final NameEditingController = TextEditingController();
   final phoneController = TextEditingController();
   final emailEditingController = TextEditingController();
   final passwordEditingController = TextEditingController();
   final confirmPasswordEditingController = TextEditingController();
-
-  // loading indicator flag
+  final idNumberFieldController = TextEditingController();
   bool _isLoading = false;
+  UserType _selectedUserType = UserType.User;
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +78,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         return null;
       },
       onSaved: (value) {
-        NameEditingController.text = value!;
+        emailEditingController.text = value!;
       },
       textInputAction: TextInputAction.next,
       decoration: InputDecoration(
@@ -149,7 +143,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         return null;
       },
       onSaved: (value) {
-        NameEditingController.text = value!;
+        passwordEditingController.text = value!;
       },
       textInputAction: TextInputAction.next,
       decoration: InputDecoration(
@@ -197,11 +191,47 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         ),
       ),
     );
+
     //signup button
+    final idNumberField = TextFormField(
+      // Text field for ID number
+      autofocus: false,
+      controller: idNumberFieldController,
+      keyboardType: TextInputType.text,
+      decoration: InputDecoration(
+        prefixIcon: Icon(Icons.credit_card),
+        contentPadding: EdgeInsets.fromLTRB(20, 15, 20, 15),
+        hintText: "ID Number",
+        enabledBorder: OutlineInputBorder(
+          borderSide: BorderSide(color: Colors.black, width: 2.0),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: BorderSide(color: Colors.purple, width: 2.0),
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
+
+    final userTypeDropdown = DropdownButtonFormField<UserType>(
+      value: _selectedUserType,
+      onChanged: (value) {
+        setState(() {
+          _selectedUserType = value!;
+        });
+      },
+      items: UserType.values.map((type) {
+        return DropdownMenuItem<UserType>(
+          value: type,
+          child: Text(type == UserType.User ? "User" : "Admin"),
+        );
+      }).toList(),
+    );
+
     final signUpButton = Material(
       elevation: 5,
       borderRadius: BorderRadius.circular(30),
-      color: Colors.purple,
+      color: Colors.black,
       child: MaterialButton(
         padding: EdgeInsets.fromLTRB(20, 15, 20, 15),
         minWidth: MediaQuery.of(context).size.width,
@@ -227,12 +257,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // Background image
-          Image.asset(
-            "assets/back.gif", // Replace with your image path
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
+          Container(
+            decoration: BoxDecoration(
+              image: DecorationImage(
+                image: AssetImage("assets/back.gif"),
+                fit: BoxFit.cover,
+              ),
+            ),
           ),
           Center(
             child: SingleChildScrollView(
@@ -264,6 +295,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         SizedBox(height: 20),
                         confirmPasswordField,
                         SizedBox(height: 20),
+                        if (_selectedUserType == UserType.User) idNumberField,
+                        SizedBox(height: 20),
+                        userTypeDropdown,
+                        SizedBox(height: 20),
                         signUpButton,
                         SizedBox(height: 15),
                       ],
@@ -285,37 +320,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       });
 
       try {
-        await _auth
-            .createUserWithEmailAndPassword(email: email, password: password)
-            .then((value) => {postDetailsToFirestore()})
-            .catchError((e) {
-          Fluttertoast.showToast(msg: e!.message);
-        });
-      } on FirebaseAuthException catch (error) {
-        switch (error.code) {
-          case "invalid-email":
-            errorMessage = "Your email address appears to be malformed.";
-            break;
-          case "wrong-password":
-            errorMessage = "Your password is wrong.";
-            break;
-          case "user-not-found":
-            errorMessage = "User with this email doesn't exist.";
-            break;
-          case "user-disabled":
-            errorMessage = "User with this email has been disabled.";
-            break;
-          case "too-many-requests":
-            errorMessage = "Too many requests";
-            break;
-          case "operation-not-allowed":
-            errorMessage = "Signing in with Email and Password is not enabled.";
-            break;
-          default:
-            errorMessage = "An undefined Error happened.";
+        UserCredential userCredential = await _auth
+            .createUserWithEmailAndPassword(email: email, password: password);
+
+        if (_selectedUserType == UserType.User) {
+          await saveUserDetailsToFirestore(userCredential.user!.uid);
+        } else {
+          await saveAdminDetailsToFirestore(userCredential.user!.uid);
         }
-        Fluttertoast.showToast(msg: errorMessage!);
-        print(error.code);
+
+        Fluttertoast.showToast(msg: "Account created successfully :) ");
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => LoginScreen()),
+              (route) => false,
+        );
+      } catch (e) {
+        Fluttertoast.showToast(msg: e.toString());
       } finally {
         setState(() {
           _isLoading = false;
@@ -323,30 +344,34 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       }
     }
   }
-  postDetailsToFirestore() async {
-    // calling our firestore
-    // calling our user model
-    // sedning these values
 
+  Future<void> saveUserDetailsToFirestore(String userId) async {
     FirebaseFirestore firebaseFirestore = FirebaseFirestore.instance;
-    User? user = _auth.currentUser;
 
     UserModel userModel = UserModel();
-
-    // writing all the values
-    userModel.email = user!.email;
-    userModel.uid = user.uid;
+    userModel.email = emailEditingController.text;
+    userModel.uid = userId;
     userModel.Name = NameEditingController.text;
     userModel.phoneNumber = phoneController.text;
-    await firebaseFirestore
-        .collection("users")
-        .doc(user.uid)
-        .set(userModel.toMap());
-    Fluttertoast.showToast(msg: "Account created successfully :) ");
+    userModel.idNumber = idNumberFieldController.text;
 
-    Navigator.pushAndRemoveUntil(
-        (context),
-        MaterialPageRoute(builder: (context) => LoginScreen()),
-        (route) => false);
+    await firebaseFirestore.collection("users").doc(userId).set(userModel.toMap());
   }
+
+  Future<void> saveAdminDetailsToFirestore(String userId) async {
+    FirebaseFirestore firebaseFirestore = FirebaseFirestore.instance;
+
+    UserModel userModel = UserModel();
+    userModel.email = emailEditingController.text;
+    userModel.uid = userId;
+    userModel.Name = NameEditingController.text;
+    userModel.phoneNumber = phoneController.text;
+
+    await firebaseFirestore.collection("admins").doc(userId).set(userModel.toMap());
+  }
+}
+
+enum UserType {
+  User,
+  Admin,
 }
