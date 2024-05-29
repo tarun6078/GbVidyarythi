@@ -147,21 +147,26 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   }
 
   Future<void> _loadSavedAreas() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String>? areaList = prefs.getStringList('savedAreas');
-    if (areaList != null) {
-      setState(() {
-        savedAreas = areaList;
-        for (String area in areaList) {
-          areaParameters[area] = {
-            'type': prefs.getString('$area-type'),
-            'radius': prefs.getString('$area-radius'),
-            'length': prefs.getString('$area-length'),
-            'breadth': prefs.getString('$area-breadth'),
-          };
-        }
-      });
+    QuerySnapshot areaSnapshot = await FirebaseFirestore.instance.collection('areas').get();
+    List<String> areaList = [];
+    Map<String, Map<String, dynamic>> parameters = {};
+
+    for (var doc in areaSnapshot.docs) {
+      String areaName = doc.id;
+      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+      areaList.add(areaName);
+      parameters[areaName] = {
+        'type': data['type'],
+        'radius': data['radius'],
+        'length': data['length'],
+        'breadth': data['breadth'],
+      };
     }
+
+    setState(() {
+      savedAreas = areaList;
+      areaParameters = parameters;
+    });
   }
 
   Future<void> _saveAreaParameters() async {
