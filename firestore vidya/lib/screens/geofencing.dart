@@ -50,8 +50,10 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   bool isExitRecorded = false;
   late String? userId;
   String? userName;
+  String? useridNumber;
   late int timerDuration;
   bool _isAdmin = false;
+  String _searchText = '';
 
 
   Timer? exitTimer;
@@ -80,6 +82,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     if (userDoc.exists) {
       setState(() {
         userName = userDoc['name'];// Fetch the 'Name' field from Firestore
+        useridNumber = userDoc['idNumber'];
         _isAdmin = false;
       });
       return;
@@ -338,6 +341,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       await FirebaseFirestore.instance.collection('attendance').add({
         'userId': userId,
         'userName': userName,
+        'useridNumber':useridNumber,
         'event': eventText,
         'address': address,
         'areaName': areaName.isNotEmpty ? areaName : 'Unknown',  // Save the area name in Firestore
@@ -401,6 +405,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       await FirebaseFirestore.instance.collection('attendance').add({
         'userId': userId,
         'userName': userName,
+        'useridNumber':useridNumber,
         'event': eventText,
         'areaName': areaName.isNotEmpty ? areaName : 'Unknown',
         'address': address,
@@ -433,7 +438,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
               SizedBox(height: 10),
               userName != null
                   ? Text(
-                "Welcome, $userName!",
+                "Welcome,  ${_isAdmin ? userName : '$userName ($useridNumber)'}!",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               )
                   : SizedBox.shrink(),
@@ -556,7 +561,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                         context,
                         MaterialPageRoute(
                           builder: (context) =>
-                              AttendanceRecordPage(userId: userId, userName: userName),
+                              AttendanceRecordPage(userId: userId, userName: userName,useridNumber: useridNumber,),
                         ),
                       );
                     },
@@ -575,6 +580,17 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                   ),
                 ],
               ),
+              TextField(
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Search saved areas',
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _searchText = value.toLowerCase();
+                  });
+                },
+              ),
               SizedBox(height: 10),
               Text('Saved Areas:'),
               savedAreas.isEmpty
@@ -585,6 +601,10 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                 itemCount: savedAreas.length,
                 itemBuilder: (context, index) {
                   String areaName = savedAreas[index];
+                  // Filter saved areas based on search text
+                  if (_searchText.isNotEmpty && !areaName.toLowerCase().contains(_searchText)) {
+                    return SizedBox.shrink();
+                  }// Hide if not matching search
                   return Dismissible(
                     key: Key(areaName),
                     direction: _isAdmin
@@ -632,8 +652,9 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
 class AttendanceRecordPage extends StatefulWidget {
   final String? userId;
   final String? userName;
+  final String? useridNumber;
 
-  const AttendanceRecordPage({Key? key, this.userId, this.userName}) : super(key: key);
+  const AttendanceRecordPage({Key? key, this.userId, this.userName,this.useridNumber}) : super(key: key);
 
   @override
   _AttendanceRecordPageState createState() => _AttendanceRecordPageState();
@@ -702,6 +723,10 @@ class _AttendanceRecordPageState extends State<AttendanceRecordPage> {
                   children: <TextSpan>[
                     TextSpan(
                       text: '${widget.userName} - ',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    TextSpan(
+                      text: '${widget.useridNumber} - ',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     TextSpan(
@@ -800,6 +825,7 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
 
               // Safely accessing fields with null checks
               final userName = record['userName'] ?? 'Unknown';
+              final useridNumber = record['useridNumber'] ?? 'Not user';
               final event = record['event'] ?? 'Unknown event';
               final areaName = record['areaName'] ?? 'Unknown area';
               final address = record['address'] ?? 'No address';
@@ -820,6 +846,10 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
                       children: [
                         TextSpan(
                           text: userName,
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        TextSpan(
+                          text: '-$useridNumber',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         TextSpan(
