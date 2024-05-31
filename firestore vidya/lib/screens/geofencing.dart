@@ -858,7 +858,7 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
 
     String csv = const ListToCsvConverter().convert(csvData);
     final Email emailToSend = Email(
-      body: 'Attached is the attendance data in CSV format.',
+      body: 'User attendance data in CSV format.',
       subject: 'Attendance Data',
       recipients: [email],
       attachmentPaths: [await _writeCsvToFile(csv)],
@@ -902,17 +902,6 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: TextField(
-              controller: _emailController,
-              decoration: InputDecoration(
-                hintText: 'Enter email address',
-                prefixIcon: Icon(Icons.email),
-              ),
-            ),
-          ),
-
-      Padding(
       padding: const EdgeInsets.all(8.0),
       child: TextField(
         decoration: InputDecoration(
