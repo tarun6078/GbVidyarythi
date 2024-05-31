@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
+import 'package:csv/csv.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_email_sender/flutter_email_sender.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -580,16 +584,20 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                   ),
                 ],
               ),
-              TextField(
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Search saved areas',
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: TextField(
+                  decoration: InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                    labelText: 'Search saved areas', // Update the label
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _searchText = value.toLowerCase(); // Update the search query
+                    });
+                  },
                 ),
-                onChanged: (value) {
-                  setState(() {
-                    _searchText = value.toLowerCase();
-                  });
-                },
               ),
               SizedBox(height: 10),
               Text('Saved Areas:'),
@@ -784,15 +792,97 @@ class UsersAttendancePage extends StatefulWidget {
 
 class _UsersAttendancePageState extends State<UsersAttendancePage> {
   late Stream<QuerySnapshot> _attendanceStream;
+  late Stream<QuerySnapshot> userStream;
+  String _searchQuery = '';
+  int _totalUsers = 0; // Add this variable to store the total number of users
+  final TextEditingController _emailController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _attendanceStream = FirebaseFirestore.instance.collection('attendance').snapshots();
+    _calculateTotalUsers(); // Calculate total users when initializing the page
   }
+  Future<void> _calculateTotalUsers() async {
+    QuerySnapshot attendanceSnapshot = await FirebaseFirestore.instance.collection('attendance').get();
+    Set<String> uniqueUsers = Set<String>();
+    for (var doc in attendanceSnapshot.docs) {
+      uniqueUsers.add(doc['userId']);
+    }
+    setState(() {
+      _totalUsers = uniqueUsers.length;
+    });
+  }
+
 
   Future<void> _deleteRecord(String documentId) async {
     await FirebaseFirestore.instance.collection('attendance').doc(documentId).delete();
+  }
+  Future<void> _sendEmailWithCsv(String email) async {
+    QuerySnapshot attendanceSnapshot = await FirebaseFirestore.instance.collection('attendance').get();
+    List<QueryDocumentSnapshot> sortedRecords = attendanceSnapshot.docs;
+    // Sort the records
+    sortedRecords.sort((a, b) {
+      int nameComparison = a['userName'].toString().compareTo(b['userName'].toString());
+      if (nameComparison != 0) {
+        return nameComparison;
+      }
+      String? eventA = a['event'];
+      String? eventB = b['event'];
+      List<String> eventOrder = ['Initialized geofence', 'Entered the location', 'Exited the location'];
+      int indexA = eventOrder.indexOf(eventA!);
+      int indexB = eventOrder.indexOf(eventB!);
+      return indexA.compareTo(indexB);
+    });
+
+    // Filter the records
+    final filteredRecords = sortedRecords.where((record) {
+      final userName = record['userName']?.toString().toLowerCase() ?? '';
+      return userName.contains(_searchQuery);
+    }).toList();
+
+    List<List<String>> csvData = [
+      ['UserName', 'UserIdNumber', 'Event', 'AreaName', 'Address', 'Timestamp']
+    ];
+    for (var doc in filteredRecords) {
+      csvData.add([
+        doc['userName'] ?? 'Unknown',
+        doc['useridNumber'] ?? 'Not user',
+        doc['event'] ?? 'Unknown event',
+        doc['areaName'] ?? 'Unknown area',
+        doc['address'] ?? 'No address',
+        doc['timestamp'] ?? 'Unknown time',
+      ]);
+    }
+
+
+    String csv = const ListToCsvConverter().convert(csvData);
+    final Email emailToSend = Email(
+      body: 'Attached is the attendance data in CSV format.',
+      subject: 'Attendance Data',
+      recipients: [email],
+      attachmentPaths: [await _writeCsvToFile(csv)],
+      isHTML: false,
+    );
+
+    try {
+      await FlutterEmailSender.send(emailToSend);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Email sent successfully")),
+      );
+    } catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to send email: $error")),
+      );
+    }
+  }
+
+  Future<String> _writeCsvToFile(String csv) async {
+    final directory = await getTemporaryDirectory();
+    final path = '${directory.path}/attendance.csv';
+    final File file = File(path);
+    await file.writeAsString(csv);
+    return file.path;
   }
 
   @override
@@ -800,8 +890,46 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text('All Users Attendance'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.send),
+            onPressed: () {
+              _sendEmailWithCsv(_emailController.text);
+            },
+          ),
+        ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: TextField(
+              controller: _emailController,
+              decoration: InputDecoration(
+                hintText: 'Enter email address',
+                prefixIcon: Icon(Icons.email),
+              ),
+            ),
+          ),
+
+      Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: TextField(
+        decoration: InputDecoration(
+          hintText: 'Search by user name',
+          prefixIcon: Icon(Icons.search),
+        ),
+        onChanged: (value) {
+          setState(() {
+            _searchQuery = value.toLowerCase();
+          });
+        },
+      ),
+    ),
+            Text('Total Users: $_totalUsers'), // Display total number of users
+
+       Expanded(
+         child: StreamBuilder<QuerySnapshot>(
         stream: _attendanceStream,
         builder: (BuildContext context, AsyncSnapshot<QuerySnapshot> snapshot) {
           if (snapshot.hasError) {
@@ -818,10 +946,36 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
             return Center(child: Text('No attendance records available.'));
           }
 
-          return ListView.builder(
-            itemCount: data.size,
+          // Sort the attendance records by user name and event type
+          List<QueryDocumentSnapshot> sortedRecords = data.docs;
+          sortedRecords.sort((a, b) {
+            // Compare user names first
+            int nameComparison = a['userName'].toString().compareTo(b['userName'].toString());
+            if (nameComparison != 0) {
+              return nameComparison;
+            }
+
+            // If user names are the same, compare event types
+            String? eventA = a['event'];
+            String? eventB = b['event'];
+            List<String> eventOrder = ['Initialized geofence', 'Entered the location', 'Exited the location'];
+            int indexA = eventOrder.indexOf(eventA!);
+            int indexB = eventOrder.indexOf(eventB!);
+            return indexA.compareTo(indexB);
+          });
+    // Filter the attendance records based on the search query
+    final filteredRecords = data.docs.where((record) {
+    final userName = record['userName']?.toString().toLowerCase() ?? '';
+    return userName.contains(_searchQuery);
+    }).toList();
+
+    if (filteredRecords.isEmpty) {
+    return Center(child: Text('No matching attendance records found.'));
+    }
+    return ListView.builder(
+            itemCount: sortedRecords.length,
             itemBuilder: (context, index) {
-              final record = data.docs[index];
+              final record = sortedRecords[index];
 
               // Safely accessing fields with null checks
               final userName = record['userName'] ?? 'Unknown';
@@ -833,7 +987,8 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
 
               return Dismissible(
                 key: Key(record.id),
-                background: Container(color: Colors.purple, child: Icon(Icons.delete, color: Colors.white)),
+                direction: DismissDirection.endToStart,
+                background: Container(alignment: Alignment.centerRight,color: Colors.purple,child: Icon(Icons.delete, color: Colors.white)),
                 onDismissed: (direction) {
                   _deleteRecord(record.id);
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -862,10 +1017,12 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
                 ),
               );
             },
-          );
+    );
         },
+    ),
+    ),
+          ],
       ),
     );
   }
 }
-
