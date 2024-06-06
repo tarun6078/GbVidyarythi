@@ -49,6 +49,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   TextEditingController breadthController = TextEditingController();
   TextEditingController timerController = TextEditingController();
   TextEditingController areaNameController = TextEditingController();
+  TextEditingController _subjectController = TextEditingController(); // Controller for the subject text field
   bool isAttendanceStopped = false;
   bool isEntryRecorded = false;
   bool isExitRecorded = false;
@@ -63,7 +64,8 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
   Timer? exitTimer;
 
   String _geofenceType = 'outdoor';
-
+  List<String> _subjects = [];
+  String? _selectedSubject;
   double? baseLatitude;
   double? baseLongitude;
 
@@ -75,6 +77,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     super.initState();
     getUserData();
     _loadSavedAreas();
+    _loadSavedSubjects();
   }
 
   Future<void> getUserData() async {
@@ -82,10 +85,11 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     userId = user?.uid;
 
     // Check if the user is in the "users" collection
-    DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+    DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection(
+        'users').doc(userId).get();
     if (userDoc.exists) {
       setState(() {
-        userName = userDoc['name'];// Fetch the 'Name' field from Firestore
+        userName = userDoc['name']; // Fetch the 'Name' field from Firestore
         useridNumber = userDoc['idNumber'];
         _isAdmin = false;
       });
@@ -93,10 +97,11 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     }
 
     // Check if the user is in the "admins" collection
-    DocumentSnapshot adminDoc = await FirebaseFirestore.instance.collection('admins').doc(userId).get();
+    DocumentSnapshot adminDoc = await FirebaseFirestore.instance.collection(
+        'admins').doc(userId).get();
     if (adminDoc.exists) {
       setState(() {
-        userName = adminDoc['name'];// Fetch the 'Name' field from Firestore
+        userName = adminDoc['name']; // Fetch the 'Name' field from Firestore
         _isAdmin = true;
       });
       return;
@@ -149,12 +154,14 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     Placemark place = placemarks[0];
     setState(() {
       address =
-      '${place.street}, ${place.subLocality}, ${place.locality}, ${place.postalCode}, ${place.country}';
+      '${place.street}, ${place.subLocality}, ${place.locality}, ${place
+          .postalCode}, ${place.country}';
     });
   }
 
   Future<void> _loadSavedAreas() async {
-    QuerySnapshot areaSnapshot = await FirebaseFirestore.instance.collection('areas').get();
+    QuerySnapshot areaSnapshot = await FirebaseFirestore.instance.collection(
+        'areas').get();
     List<String> areaList = [];
     Map<String, Map<String, dynamic>> parameters = {};
 
@@ -260,11 +267,13 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
           bool insideGeofence;
           if (_geofenceType == 'outdoor') {
             double radius = double.tryParse(radiusController.text) ?? 0;
-            insideGeofence = _isInsideCircularGeofence(position, baseLatitude!, baseLongitude!, radius);
+            insideGeofence = _isInsideCircularGeofence(
+                position, baseLatitude!, baseLongitude!, radius);
           } else {
             double length = double.tryParse(lengthController.text) ?? 0;
             double breadth = double.tryParse(breadthController.text) ?? 0;
-            insideGeofence = _isInsideRectangularGeofence(position, baseLatitude!, baseLongitude!, length, breadth);
+            insideGeofence = _isInsideRectangularGeofence(
+                position, baseLatitude!, baseLongitude!, length, breadth);
           }
 
           if (insideGeofence) {
@@ -294,19 +303,24 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     }
   }
 
-  bool _isInsideCircularGeofence(Position position, double centerLatitude, double centerLongitude, double radius) {
-    double distance = Geolocator.distanceBetween(position.latitude, position.longitude, centerLatitude, centerLongitude);
+  bool _isInsideCircularGeofence(Position position, double centerLatitude,
+      double centerLongitude, double radius) {
+    double distance = Geolocator.distanceBetween(
+        position.latitude, position.longitude, centerLatitude, centerLongitude);
     return distance <= radius;
   }
 
-  bool _isInsideRectangularGeofence(Position position, double baseLatitude, double baseLongitude, double length, double breadth) {
+  bool _isInsideRectangularGeofence(Position position, double baseLatitude,
+      double baseLongitude, double length, double breadth) {
     double halfLength = length / 2;
     double halfBreadth = breadth / 2;
 
     double northBound = baseLatitude + (halfLength / 111320);
     double southBound = baseLatitude - (halfLength / 111320);
-    double eastBound = baseLongitude + (halfBreadth / (111320 * cos(baseLatitude * (pi / 180))));
-    double westBound = baseLongitude - (halfBreadth / (111320 * cos(baseLatitude * (pi / 180))));
+    double eastBound = baseLongitude +
+        (halfBreadth / (111320 * cos(baseLatitude * (pi / 180))));
+    double westBound = baseLongitude -
+        (halfBreadth / (111320 * cos(baseLatitude * (pi / 180))));
 
     return position.latitude <= northBound &&
         position.latitude >= southBound &&
@@ -331,6 +345,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
     positionStream?.cancel();
     cancelExitTimer(); // Cancel the timer when attendance is stopped
   }
+
   Future<void> saveAttendance(GeofenceEvent event, String address) async {
     if (!isExitRecorded || event == GeofenceEvent.enter) {
       SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -339,16 +354,19 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       String eventText = _getEventText(event);
       String areaName = areaNameController.text.trim(); // Get the area name
 
-      attendanceList.add('$formattedDateTime - $eventText - Address: $address - Area: $areaName');
+      attendanceList.add(
+          '$formattedDateTime - $eventText - Address: $address - $_selectedSubject - Area: $areaName');
       await prefs.setStringList(userId!, attendanceList);
 
       await FirebaseFirestore.instance.collection('attendance').add({
         'userId': userId,
         'userName': userName,
-        'useridNumber':useridNumber,
+        'useridNumber': useridNumber,
         'event': eventText,
+        'Subject':_selectedSubject,
         'address': address,
-        'areaName': areaName.isNotEmpty ? areaName : 'Unknown',  // Save the area name in Firestore
+        'areaName': areaName.isNotEmpty ? areaName : 'Unknown',
+        // Save the area name in Firestore
         'timestamp': formattedDateTime,
       });
     }
@@ -363,7 +381,7 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
         return 'Entered the location';
       case GeofenceEvent.exit:
         return 'Exited the location';
-        default:
+      default:
         return 'Unknown event';
     }
   }
@@ -404,13 +422,15 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       String eventText = _getEventText(GeofenceEvent.exit);
       String areaName = areaNameController.text.trim();
       List<String>? attendanceList = prefs.getStringList(userId!) ?? [];
-      attendanceList.add('$formattedDateTime - $eventText - Address: $address Area: $areaName');
+      attendanceList.add(
+          '$formattedDateTime - $eventText - Address- $address - $_selectedSubject - Area: $areaName');
       await prefs.setStringList(userId!, attendanceList);
       await FirebaseFirestore.instance.collection('attendance').add({
         'userId': userId,
         'userName': userName,
-        'useridNumber':useridNumber,
+        'useridNumber': useridNumber,
         'event': eventText,
+        'Subject':_selectedSubject,
         'areaName': areaName.isNotEmpty ? areaName : 'Unknown',
         'address': address,
         'timestamp': formattedDateTime,
@@ -419,11 +439,54 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
         isExitRecorded = true;
         geofenceEvent = GeofenceEvent.exit.toString();
       });
-
     }
   }
 
+// Load saved subjects from SharedPreferences
 
+  Future<void> _loadSavedSubjects() async {
+    CollectionReference subjectsRef = FirebaseFirestore.instance.collection(
+        'subjects');
+    QuerySnapshot querySnapshot = await subjectsRef.get();
+
+    setState(() {
+      _subjects =
+          querySnapshot.docs.map((doc) => doc['name'] as String).toList();
+      _selectedSubject = _subjects.isNotEmpty ? _subjects.first : null;
+    });
+  }
+
+  Future<void> _addSubject(String subject) async {
+    if (_subjects.contains(subject)) return;
+
+    CollectionReference subjectsRef = FirebaseFirestore.instance.collection(
+        'subjects');
+    await subjectsRef.add({'name': subject});
+
+    setState(() {
+      _subjects.add(subject);
+      if (_selectedSubject == null) {
+        _selectedSubject = subject;
+      }
+    });
+  }
+
+  Future<void> _deleteSubject(String subject) async {
+    CollectionReference subjectsRef = FirebaseFirestore.instance.collection(
+        'subjects');
+    QuerySnapshot querySnapshot = await subjectsRef.where(
+        'name', isEqualTo: subject).get();
+    for (var doc in querySnapshot.docs) {
+      await doc.reference.delete();
+    }
+
+    setState(() {
+      _subjects.remove(subject);
+      if (_selectedSubject == subject) {
+        _selectedSubject = _subjects.isNotEmpty ? _subjects.first : null;
+      }
+    });
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -437,15 +500,13 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
-                "Geofence Event: " + geofenceEvent,
+                "Geofence Event: $geofenceEvent",
               ),
               SizedBox(height: 10),
-              userName != null
-                  ? Text(
-                "Welcome,  ${_isAdmin ? userName : '$userName ($useridNumber)'}!",
+              Text(
+                "Welcome, ${_isAdmin ? userName : '${userName} (${useridNumber})'}!",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              )
-                  : SizedBox.shrink(),
+              ),
               SizedBox(height: 10),
               DropdownButton<String>(
                 value: _geofenceType,
@@ -462,6 +523,91 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                   );
                 }).toList(),
               ),
+              DropdownButton<String>(
+                value: _selectedSubject,
+                onChanged: (String? newValue) {
+                  setState(() {
+                    _selectedSubject = newValue!;
+                  });
+                },
+                items: _subjects.map<DropdownMenuItem<String>>((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Row(
+                      children: [
+                        if (_isAdmin)
+                          GestureDetector(
+                            onLongPress: () {
+                              showDialog(
+                                context: context,
+                                builder: (BuildContext context) {
+                                  return AlertDialog(
+                                    title: Text('Confirm Delete'),
+                                    content: Text(
+                                        'Are you sure you want to delete $value?'),
+                                    actions: <Widget>[
+                                      TextButton(
+                                        onPressed: () {
+                                          Navigator.of(context).pop();
+                                        },
+                                        child: Text('Cancel'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () {
+                                          _deleteSubject(value);
+                                          Navigator.of(context).pop();
+                                        },
+                                        child: Text('Delete'),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
+                            },
+                            child: Icon(Icons.delete, color: Colors.purple),
+                          ),
+                        SizedBox(width: 10),
+                        Text(value),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+              if (_isAdmin)
+                ElevatedButton(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (BuildContext context) {
+                        return AlertDialog(
+                          title: Text('Add Subject'),
+                          content: TextField(
+                            controller: _subjectController,
+                            decoration: InputDecoration(
+                              labelText: 'Subject Name',
+                            ),
+                          ),
+                          actions: <Widget>[
+                            TextButton(
+                              onPressed: () {
+                                Navigator.of(context).pop();
+                              },
+                              child: Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                _addSubject(_subjectController.text);
+                                Navigator.of(context).pop();
+                              },
+                              child: Text('Save'),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                  child: Text('Add Subject'),
+                ),
               SizedBox(height: 10),
               if (_geofenceType == 'outdoor') ...[
                 TextField(
@@ -470,7 +616,8 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                     border: OutlineInputBorder(),
                     labelText: 'Enter radius (meters)',
                   ),
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
+                  keyboardType:
+                  TextInputType.numberWithOptions(decimal: true),
                 ),
               ] else ...[
                 TextField(
@@ -479,7 +626,8 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                     border: OutlineInputBorder(),
                     labelText: 'Enter length (meters)',
                   ),
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
+                  keyboardType:
+                  TextInputType.numberWithOptions(decimal: true),
                 ),
                 SizedBox(height: 10),
                 TextField(
@@ -488,7 +636,8 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                     border: OutlineInputBorder(),
                     labelText: 'Enter breadth (meters)',
                   ),
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
+                  keyboardType:
+                  TextInputType.numberWithOptions(decimal: true),
                 ),
               ],
               SizedBox(height: 10),
@@ -518,13 +667,13 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                     },
                     child: Text('Get Location'),
                   ),
-                  if(_isAdmin)
-                  ElevatedButton(
-                    onPressed: () async {
-                      await _saveAreaParameters();
-                    },
-                    child: Text('Save Area'),
-                  ),
+                  if (_isAdmin)
+                    ElevatedButton(
+                      onPressed: () async {
+                        await _saveAreaParameters();
+                      },
+                      child: Text('Save Area'),
+                    ),
                 ],
               ),
               SizedBox(height: 10),
@@ -538,17 +687,13 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                   ElevatedButton(
                     child: Text("Start"),
                     onPressed: () async {
-                      print("start");
                       await startAttendance();
                     },
                   ),
-                  SizedBox(
-                    width: 10.0,
-                  ),
+                  SizedBox(width: 10.0),
                   ElevatedButton(
                     child: Text("Stop"),
                     onPressed: () async {
-                      print("stop");
                       await stopAttendance();
                     },
                   ),
@@ -564,24 +709,27 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) =>
-                              AttendanceRecordPage(userId: userId, userName: userName,useridNumber: useridNumber,),
+                          builder: (context) => AttendanceRecordPage(
+                            userId: userId,
+                            userName: userName,
+                            useridNumber: useridNumber,
+                          ),
                         ),
                       );
                     },
                   ),
                   if (_isAdmin)
                     ElevatedButton(
-                    child: Text("Users Attendance"),
-                    onPressed: () { Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => UsersAttendancePage(),
-                      ),
-                    );
-                      // Navigate to Users Attendance page
-                    },
-                  ),
+                      child: Text("Users Attendance"),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => UsersAttendancePage(),
+                          ),
+                        );
+                      },
+                    ),
                 ],
               ),
               Padding(
@@ -590,11 +738,11 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                   decoration: InputDecoration(
                     prefixIcon: Icon(Icons.search),
                     border: OutlineInputBorder(),
-                    labelText: 'Search saved areas', // Update the label
+                    labelText: 'Search saved areas',
                   ),
                   onChanged: (value) {
                     setState(() {
-                      _searchText = value.toLowerCase(); // Update the search query
+                      _searchText = value.toLowerCase();
                     });
                   },
                 ),
@@ -609,12 +757,14 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                 itemCount: savedAreas.length,
                 itemBuilder: (context, index) {
                   String areaName = savedAreas[index];
-                  // Filter saved areas based on search text
-                  if (_searchText.isNotEmpty && !areaName.toLowerCase().contains(_searchText)) {
+                  if (_searchText.isNotEmpty &&
+                      !areaName
+                          .toLowerCase()
+                          .contains(_searchText)) {
                     return SizedBox.shrink();
-                  }// Hide if not matching search
+                  }
                   return Dismissible(
-                    key: Key(areaName),
+                    key: UniqueKey(),
                     direction: _isAdmin
                         ? DismissDirection.endToStart
                         : DismissDirection.none,
@@ -623,7 +773,8 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                       color: Colors.purple,
                       child: Padding(
                         padding: EdgeInsets.symmetric(horizontal: 10.0),
-                        child: Icon(Icons.delete, color: Colors.white),
+                        child: Icon(Icons.delete,
+                            color: Colors.white),
                       ),
                     ),
                     onDismissed: (direction) async {
@@ -636,10 +787,17 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
                             'Type: ${areaParameters[areaName]!['type']}, Radius: ${areaParameters[areaName]!['radius']}, Length: ${areaParameters[areaName]!['length']}, Breadth: ${areaParameters[areaName]!['breadth']}'),
                         onTap: () {
                           setState(() {
-                            _geofenceType = areaParameters[areaName]!['type'];
-                            radiusController.text = areaParameters[areaName]!['radius'] ?? '';
-                            lengthController.text = areaParameters[areaName]!['length'] ?? '';
-                            breadthController.text = areaParameters[areaName]!['breadth'] ?? '';
+                            _geofenceType =
+                            areaParameters[areaName]!['type']!;
+                            radiusController.text =
+                                areaParameters[areaName]!['radius'] ??
+                                    '';
+                            lengthController.text =
+                                areaParameters[areaName]!['length'] ??
+                                    '';
+                            breadthController.text =
+                                areaParameters[areaName]!['breadth'] ??
+                                    '';
                             areaNameController.text = areaName;
                           });
                         },
@@ -654,10 +812,8 @@ class _MyGeofencePageState extends State<MyGeofencePage> {
       ),
     );
   }
-
 }
-
-class AttendanceRecordPage extends StatefulWidget {
+  class AttendanceRecordPage extends StatefulWidget {
   final String? userId;
   final String? userName;
   final String? useridNumber;
@@ -792,36 +948,66 @@ class UsersAttendancePage extends StatefulWidget {
 
 class _UsersAttendancePageState extends State<UsersAttendancePage> {
   late Stream<QuerySnapshot> _attendanceStream;
-  late Stream<QuerySnapshot> userStream;
+  late List<String> _subjects = [];
+  String? _selectedSubject;
   String _searchQuery = '';
-  int _totalUsers = 0; // Add this variable to store the total number of users
+  int _totalUsers = 0;
   final TextEditingController _emailController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    _loadSubjects();
     _attendanceStream = FirebaseFirestore.instance.collection('attendance').snapshots();
-    _calculateTotalUsers(); // Calculate total users when initializing the page
+    _calculateTotalUsers();
   }
+
+  Future<void> _loadSubjects() async {
+    CollectionReference subjectsRef = FirebaseFirestore.instance.collection('subjects');
+    QuerySnapshot querySnapshot = await subjectsRef.get();
+    setState(() {
+      _subjects = querySnapshot.docs.map((doc) => doc['name'] as String).toList();
+      _selectedSubject = _subjects.isNotEmpty ? _subjects.first : null;
+      _calculateTotalUsers();
+    });
+  }
+
   Future<void> _calculateTotalUsers() async {
-    QuerySnapshot attendanceSnapshot = await FirebaseFirestore.instance.collection('attendance').get();
+    if (_selectedSubject == null) {
+      setState(() {
+        _totalUsers = 0;
+      });
+      return;
+    }
+
+    QuerySnapshot attendanceSnapshot = await FirebaseFirestore.instance
+        .collection('attendance')
+        .where('Subject', isEqualTo: _selectedSubject)
+        .get();
+
     Set<String> uniqueUsers = Set<String>();
     for (var doc in attendanceSnapshot.docs) {
       uniqueUsers.add(doc['userId']);
     }
+
     setState(() {
       _totalUsers = uniqueUsers.length;
     });
   }
 
-
   Future<void> _deleteRecord(String documentId) async {
     await FirebaseFirestore.instance.collection('attendance').doc(documentId).delete();
   }
+
   Future<void> _sendEmailWithCsv(String email) async {
-    QuerySnapshot attendanceSnapshot = await FirebaseFirestore.instance.collection('attendance').get();
+    if (_selectedSubject == null) return;
+
+    QuerySnapshot attendanceSnapshot = await FirebaseFirestore.instance
+        .collection('attendance')
+        .where('Subject', isEqualTo: _selectedSubject)
+        .get();
+
     List<QueryDocumentSnapshot> sortedRecords = attendanceSnapshot.docs;
-    // Sort the records
     sortedRecords.sort((a, b) {
       int nameComparison = a['userName'].toString().compareTo(b['userName'].toString());
       if (nameComparison != 0) {
@@ -835,7 +1021,6 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
       return indexA.compareTo(indexB);
     });
 
-    // Filter the records
     final filteredRecords = sortedRecords.where((record) {
       final userName = record['userName']?.toString().toLowerCase() ?? '';
       return userName.contains(_searchQuery);
@@ -854,7 +1039,6 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
         doc['timestamp'] ?? 'Unknown time',
       ]);
     }
-
 
     String csv = const ListToCsvConverter().convert(csvData);
     final Email emailToSend = Email(
@@ -879,7 +1063,7 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
 
   Future<String> _writeCsvToFile(String csv) async {
     final directory = await getTemporaryDirectory();
-    final path = '${directory.path}/attendance.csv';
+    final path = '${directory.path}/${_selectedSubject}_attendance.csv';
     final File file = File(path);
     await file.writeAsString(csv);
     return file.path;
@@ -902,115 +1086,137 @@ class _UsersAttendancePageState extends State<UsersAttendancePage> {
       body: Column(
         children: [
           Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: TextField(
-        decoration: InputDecoration(
-          hintText: 'Search by user name',
-          prefixIcon: Icon(Icons.search),
-        ),
-        onChanged: (value) {
-          setState(() {
-            _searchQuery = value.toLowerCase();
-          });
-        },
-      ),
-    ),
-            Text('Total Users: $_totalUsers'), // Display total number of users
+            padding: const EdgeInsets.all(8.0),
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: 'Search by user name',
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value.toLowerCase();
+                });
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: DropdownButton<String>(
+              value: _selectedSubject,
+              onChanged: (String? newValue) {
+                setState(() {
+                  _selectedSubject = newValue!;
+                  _calculateTotalUsers();
+                });
+              },
+              items: _subjects.map<DropdownMenuItem<String>>((String value) {
+                return DropdownMenuItem<String>(
+                  value: value,
+                  child: Text(value),
+                );
+              }).toList(),
+            ),
+          ),
+          Text('Total Users: $_totalUsers'),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _attendanceStream,
+              builder: (BuildContext context, AsyncSnapshot<QuerySnapshot> snapshot) {
+                if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                }
 
-       Expanded(
-         child: StreamBuilder<QuerySnapshot>(
-        stream: _attendanceStream,
-        builder: (BuildContext context, AsyncSnapshot<QuerySnapshot> snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(child: CircularProgressIndicator());
+                }
 
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator());
-          }
+                final data = snapshot.requireData;
 
-          final data = snapshot.requireData;
+                if (data.docs.isEmpty) {
+                  return Center(child: Text('No attendance records available.'));
+                }
 
-          if (data.docs.isEmpty) {
-            return Center(child: Text('No attendance records available.'));
-          }
+                List<QueryDocumentSnapshot> sortedRecords = data.docs;
+                sortedRecords.sort((a, b) {
+                  int nameComparison = a['userName'].toString().compareTo(b['userName'].toString());
+                  if (nameComparison != 0) {
+                    return nameComparison;
+                  }
+                  String? eventA = a['event'];
+                  String? eventB = b['event'];
+                  List<String> eventOrder = ['Initialized geofence', 'Entered the location', 'Exited the location'];
+                  int indexA = eventOrder.indexOf(eventA!);
+                  int indexB = eventOrder.indexOf(eventB!);
+                  return indexA.compareTo(indexB);
+                });
 
-          // Sort the attendance records by user name and event type
-          List<QueryDocumentSnapshot> sortedRecords = data.docs;
-          sortedRecords.sort((a, b) {
-            // Compare user names first
-            int nameComparison = a['userName'].toString().compareTo(b['userName'].toString());
-            if (nameComparison != 0) {
-              return nameComparison;
-            }
+                final filteredRecords = sortedRecords.where((record) {
+                  final userName = record['userName']?.toString().toLowerCase() ?? '';
+                  final subject = record['Subject']?.toString().toLowerCase() ?? '';
+                  return userName.contains(_searchQuery) && subject == _selectedSubject?.toLowerCase();
+                }).toList();
 
-            // If user names are the same, compare event types
-            String? eventA = a['event'];
-            String? eventB = b['event'];
-            List<String> eventOrder = ['Initialized geofence', 'Entered the location', 'Exited the location'];
-            int indexA = eventOrder.indexOf(eventA!);
-            int indexB = eventOrder.indexOf(eventB!);
-            return indexA.compareTo(indexB);
-          });
-    // Filter the attendance records based on the search query
-    final filteredRecords = data.docs.where((record) {
-    final userName = record['userName']?.toString().toLowerCase() ?? '';
-    return userName.contains(_searchQuery);
-    }).toList();
+                if (filteredRecords.isEmpty) {
+                  return Center(child: Text('No matching attendance records found.'));
+                }
 
-    if (filteredRecords.isEmpty) {
-    return Center(child: Text('No matching attendance records found.'));
-    }
-    return ListView.builder(
-            itemCount: sortedRecords.length,
-            itemBuilder: (context, index) {
-              final record = sortedRecords[index];
+                return ListView.builder(
+                  itemCount: filteredRecords.length,
+                  itemBuilder: (context, index) {
+                    final record = filteredRecords[index];
 
-              // Safely accessing fields with null checks
-              final userName = record['userName'] ?? 'Unknown';
-              final useridNumber = record['useridNumber'] ?? 'Not user';
-              final event = record['event'] ?? 'Unknown event';
-              final areaName = record['areaName'] ?? 'Unknown area';
-              final address = record['address'] ?? 'No address';
-              final timestamp = record['timestamp'] ?? 'Unknown time';
+                    final userName = record['userName'] ?? 'Unknown';
+                    final useridNumber = record['useridNumber'] ?? 'Not user';
+                    final event = record['event'] ?? 'Unknown event';
+                    final areaName = record['areaName'] ?? 'Unknown area';
+                    final address = record['address'] ?? 'No address';
+                    final timestamp = record['timestamp'] ?? 'Unknown time';
 
-              return Dismissible(
-                key: Key(record.id),
-                direction: DismissDirection.endToStart,
-                background: Container(alignment: Alignment.centerRight,color: Colors.purple,child: Icon(Icons.delete, color: Colors.white)),
-                onDismissed: (direction) {
-                  _deleteRecord(record.id);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Record deleted")),
-                  );
-                },
-                child: ListTile(
-                  title: Text.rich(
-                    TextSpan(
-                      children: [
-                        TextSpan(
-                          text: userName,
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        TextSpan(
-                          text: '-$useridNumber',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        TextSpan(
-                          text: ' - $event - $areaName',
-                        ),
-                      ],
-                    ),
-                  ),
-                  subtitle: Text('Address: $address\nTime: $timestamp'),
-                ),
-              );
-            },
-    );
-        },
-    ),
-    ),
-          ],
+                    return Dismissible(
+                      key: Key(record.id),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        color: Colors.purple,
+                        child: Icon(Icons.delete, color: Colors.white),
+                      ),
+                      confirmDismiss: (DismissDirection direction) async {
+                        return await showDialog(
+                          context: context,
+                          builder: (BuildContext context) {
+                            return AlertDialog(
+                              title: Text("Confirm"),
+                              content: Text("Are you sure you want to delete this record?"),
+                              actions: <Widget>[
+                                TextButton(
+                                  onPressed: () => Navigator.of(context).pop(false),
+                                  child: Text("Cancel"),
+                                ),
+                                TextButton(
+                                  onPressed: () => Navigator.of(context).pop(true),
+                                  child: Text("OK"),
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                      },
+                      onDismissed: (direction) {
+                        if (direction == DismissDirection.endToStart) {
+                          _deleteRecord(record.id);
+                        }
+                      },
+                      child: ListTile(
+                        title: Text('$userName - $useridNumber'),
+                        subtitle: Text('Event: $event\nArea: $areaName\nAddress: $address\nTimestamp: $timestamp'),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
